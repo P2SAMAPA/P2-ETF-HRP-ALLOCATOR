@@ -10,7 +10,6 @@ import plotly.figure_factory as ff
 from huggingface_hub import HfApi, hf_hub_download
 import json
 import numpy as np
-import scipy.cluster.hierarchy as sch
 import config
 
 st.set_page_config(
@@ -38,6 +37,7 @@ st.markdown("""
 
 @st.cache_data(ttl=3600)
 def load_latest_weights():
+    """Fetch the most recent result file from HF dataset."""
     try:
         api = HfApi(token=config.HF_TOKEN)
         files = api.list_repo_files(repo_id=config.HF_OUTPUT_REPO, repo_type="dataset")
@@ -57,24 +57,26 @@ def load_latest_weights():
         st.error(f"Failed to load data: {e}")
         return None
 
-def create_dendrogram(linkage: list, tickers: list) -> go.Figure:
+def create_dendrogram(linkage: list, labels: list) -> go.Figure:
     """Create a dendrogram from linkage matrix."""
     if linkage is None or len(linkage) == 0:
         return None
-    
-    expected_rows = len(tickers) - 1
+    if labels is None or len(labels) == 0:
+        return None
+
+    # The linkage matrix must have exactly len(labels) - 1 rows
+    expected_rows = len(labels) - 1
     if len(linkage) != expected_rows:
         st.warning(f"Linkage matrix has {len(linkage)} rows, expected {expected_rows}. Adjusting...")
         if len(linkage) > expected_rows:
             linkage = linkage[:expected_rows]
         else:
-            # Can't fix, return None
             return None
-    
+
     try:
         fig = ff.create_dendrogram(
             np.array(linkage),
-            labels=tickers,
+            labels=labels,
             orientation='bottom',
             colorscale='Viridis'
         )
@@ -175,10 +177,12 @@ for tab, universe_key in zip([tab1, tab2, tab3], universe_keys):
         st.dataframe(df_display, use_container_width=True, hide_index=True)
         
         # Dendrogram
-        linkage = data.get('cluster_linkage', {}).get(universe_key)
-        tickers_in_universe = config.UNIVERSES[universe_key]
-        if linkage and len(tickers_in_universe) > 2:
-            st.markdown("### Hierarchical Clustering")
-            fig_dendro = create_dendrogram(linkage, tickers_in_universe)
-            if fig_dendro:
-                st.plotly_chart(fig_dendro, use_container_width=True, key=f"dendro_{universe_key}")
+        cluster_entry = data.get('cluster_info', {}).get(universe_key)
+        if cluster_entry:
+            linkage = cluster_entry.get('linkage')
+            original_tickers = cluster_entry.get('original_tickers')
+            if linkage and original_tickers and len(original_tickers) > 2:
+                st.markdown("### Hierarchical Clustering")
+                fig_dendro = create_dendrogram(linkage, original_tickers)
+                if fig_dendro:
+                    st.plotly_chart(fig_dendro, use_container_width=True, key=f"dendro_{universe_key}")
