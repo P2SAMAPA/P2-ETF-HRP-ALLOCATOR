@@ -1,6 +1,6 @@
 """
 Main training script for HRP Allocator engine.
-Computes HRP weights for all universes and pushes results to Hugging Face.
+Computes daily top-5 HRP weights and shrinking-window allocations.
 """
 
 import json
@@ -12,64 +12,92 @@ import data_manager
 from hrp_model import HRPAllocator
 import push_results
 
+def get_top_n_weights(weights_dict: dict, n: int = 5) -> dict:
+    """Keep only top N weights and renormalize to 1."""
+    sorted_items = sorted(weights_dict.items(), key=lambda x: x[1], reverse=True)[:n]
+    top_weights = dict(sorted_items)
+    total = sum(top_weights.values())
+    return {k: v / total for k, v in top_weights.items()}
+
 def run_hrp_allocation():
-    """Orchestrates the full HRP allocation pipeline."""
-    
     print(f"=== P2-ETF-HRP-ALLOCATOR Run: {config.TODAY} ===")
-    
-    # Load master data
     df_master = data_manager.load_master_data()
-    
-    # Initialize allocator
     allocator = HRPAllocator(linkage_method=config.LINKAGE_METHOD)
-    
-    all_weights = {}
-    cluster_info = {}
-    
+
+    # ---------------------------
+    # 1. Daily Trading (504d, top 5)
+    # ---------------------------
+    daily_full = {}
+    daily_top5 = {}
+    daily_cluster_info = {}
+
     for universe_name, tickers in config.UNIVERSES.items():
-        print(f"\n--- Processing Universe: {universe_name} ---")
-        
-        # Prepare returns matrix
+        print(f"\n--- Daily Trading: {universe_name} ---")
         returns_matrix = data_manager.prepare_returns_matrix(df_master, tickers)
-        
         if len(returns_matrix) < config.MIN_OBSERVATIONS:
-            print(f"    Insufficient data: {len(returns_matrix)} observations")
             continue
-        
-        # Use recent window
         recent_returns = returns_matrix.iloc[-config.LOOKBACK_WINDOW:]
         print(f"    Using {len(recent_returns)} observations")
-        
-        # Compute HRP weights
         weights = allocator.allocate(recent_returns)
-        all_weights[universe_name] = weights
-        
-        # Print summary
-        top_3 = sorted(weights.items(), key=lambda x: x[1], reverse=True)[:3]
-        print(f"    Top 3 allocations: {', '.join([f'{t}: {w:.2%}' for t, w in top_3])}")
-        
-        # Store cluster linkage and original tickers for visualization
+        daily_full[universe_name] = weights
+        daily_top5[universe_name] = get_top_n_weights(weights, config.TOP_N_DAILY)
+
+        # Store cluster info for dendrogram
         linkage, original_tickers = allocator.get_linkage_and_labels()
         if linkage is not None and original_tickers is not None:
-            cluster_info[universe_name] = {
+            daily_cluster_info[universe_name] = {
                 "linkage": linkage.tolist(),
                 "original_tickers": original_tickers
             }
-    
-    # Build output payload
+        top_items = list(daily_top5[universe_name].items())
+        print(f"    Top 5: {', '.join([f'{t}: {w:.2%}' for t, w in top_items])}")
+
+    # ---------------------------
+    # 2. Shrinking Windows
+    # ---------------------------
+    shrinking_results = {}
+    for start_year in config.SHRINKING_WINDOW_START_YEARS:
+        start_date = pd.Timestamp(f"{start_year}-01-01")
+        window_label = f"{start_year}-{config.TODAY[:4]}"
+        print(f"\n--- Shrinking Window: {window_label} ---")
+        mask = df_master['Date'] >= start_date
+        df_window = df_master[mask].copy()
+        if len(df_window) < 252:
+            print(f"    Skipping (less than 1 year of data)")
+            continue
+
+        window_weights = {}
+        for universe_name, tickers in config.UNIVERSES.items():
+            returns_matrix = data_manager.prepare_returns_matrix(df_window, tickers)
+            if len(returns_matrix) < 252:
+                continue
+            weights = allocator.allocate(returns_matrix)
+            window_weights[universe_name] = weights
+        shrinking_results[window_label] = {
+            "start_year": start_year,
+            "start_date": start_date.isoformat(),
+            "weights": window_weights
+        }
+
+    # ---------------------------
+    # Build payload and push
+    # ---------------------------
     output_payload = {
         "run_date": config.TODAY,
         "config": {
             "lookback_window": config.LOOKBACK_WINDOW,
-            "linkage_method": config.LINKAGE_METHOD
+            "linkage_method": config.LINKAGE_METHOD,
+            "top_n_daily": config.TOP_N_DAILY
         },
-        "weights": all_weights,
-        "cluster_info": cluster_info
+        "daily_trading": {
+            "full_weights": daily_full,
+            "top5_weights": daily_top5,
+            "cluster_info": daily_cluster_info
+        },
+        "shrinking_windows": shrinking_results
     }
-    
-    # Push to Hugging Face
+
     push_results.push_daily_result(output_payload)
-    
     print("\n=== Run Complete ===")
 
 if __name__ == "__main__":
