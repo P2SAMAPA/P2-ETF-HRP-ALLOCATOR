@@ -1,0 +1,174 @@
+"""
+Streamlit Dashboard for HRP Allocator.
+Displays HRP portfolio weights and cluster dendrograms.
+"""
+
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.figure_factory as ff
+from huggingface_hub import HfApi, hf_hub_download
+import json
+import numpy as np
+import scipy.cluster.hierarchy as sch
+import config
+
+st.set_page_config(
+    page_title="P2Quant HRP Allocator",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: 600;
+        color: #1f77b4;
+        margin-bottom: 0.5rem;
+    }
+    .sub-header {
+        font-size: 1.2rem;
+        color: #555;
+        margin-bottom: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+@st.cache_data(ttl=3600)
+def load_latest_weights():
+    """Fetch the most recent result file from HF dataset."""
+    try:
+        api = HfApi(token=config.HF_TOKEN)
+        files = api.list_repo_files(repo_id=config.HF_OUTPUT_REPO, repo_type="dataset")
+        json_files = sorted([f for f in files if f.endswith('.json')], reverse=True)
+        if not json_files:
+            return None
+        local_path = hf_hub_download(
+            repo_id=config.HF_OUTPUT_REPO,
+            filename=json_files[0],
+            repo_type="dataset",
+            token=config.HF_TOKEN,
+            cache_dir="./hf_cache"
+        )
+        with open(local_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        st.error(f"Failed to load data: {e}")
+        return None
+
+def create_dendrogram(linkage: list, tickers: list) -> go.Figure:
+    """Create a dendrogram from linkage matrix."""
+    if linkage is None:
+        return None
+    
+    fig = ff.create_dendrogram(
+        np.array(linkage),
+        labels=tickers,
+        orientation='bottom',
+        colorscale='Viridis'
+    )
+    fig.update_layout(
+        title="Hierarchical Clustering Dendrogram",
+        xaxis_title="ETF Ticker",
+        yaxis_title="Distance",
+        height=400
+    )
+    return fig
+
+# --- Sidebar ---
+st.sidebar.markdown("## ⚙️ Configuration")
+st.sidebar.markdown(f"**Data Source:** `{config.HF_DATA_REPO}`")
+st.sidebar.markdown(f"**Results Repo:** `{config.HF_OUTPUT_REPO}`")
+st.sidebar.divider()
+
+st.sidebar.markdown("### 📊 HRP Parameters")
+st.sidebar.markdown(f"- Lookback Window: **{config.LOOKBACK_WINDOW} days**")
+st.sidebar.markdown(f"- Linkage Method: **{config.LINKAGE_METHOD}**")
+st.sidebar.divider()
+
+data = load_latest_weights()
+if data:
+    st.sidebar.markdown(f"**Run Date:** {data.get('run_date', 'Unknown')}")
+else:
+    st.sidebar.markdown("*No data available*")
+
+st.sidebar.divider()
+st.sidebar.markdown("### 📖 About")
+st.sidebar.markdown("""
+**HRP Allocator** generates robust portfolio weights using Hierarchical Risk Parity.
+
+- No expected return estimates required
+- Uses covariance clustering to group similar assets
+- Distributes risk equally across the hierarchy
+""")
+
+# --- Main Content ---
+st.markdown('<div class="main-header">📊 P2Quant HRP Allocator</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Hierarchical Risk Parity – Daily Rebalanced Weights</div>', unsafe_allow_html=True)
+
+if data is None:
+    st.warning("No data available. Please run the daily pipeline first.")
+    st.stop()
+
+# --- Tabs ---
+tab1, tab2, tab3 = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
+universe_keys = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
+
+for tab, universe_key in zip([tab1, tab2, tab3], universe_keys):
+    with tab:
+        weights = data['weights'].get(universe_key, {})
+        
+        if not weights:
+            st.info(f"No weights available for {universe_key} universe.")
+            continue
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(weights.items(), columns=['Ticker', 'Weight'])
+        df = df.sort_values('Weight', ascending=False)
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            st.markdown("### Portfolio Allocation")
+            fig_pie = go.Figure(go.Pie(
+                labels=df['Ticker'],
+                values=df['Weight'],
+                hole=0.4,
+                textinfo='label+percent',
+                marker=dict(colors=['#1f77b4' if i == 0 else '#a0aec0' for i in range(len(df))])
+            ))
+            fig_pie.update_layout(height=450)
+            st.plotly_chart(fig_pie, use_container_width=True, key=f"pie_{universe_key}")
+        
+        with col2:
+            st.markdown("### Weight Distribution")
+            fig_bar = go.Figure(go.Bar(
+                x=df['Ticker'],
+                y=df['Weight'],
+                marker_color=['#1f77b4' if i == 0 else '#a0aec0' for i in range(len(df))],
+                text=df['Weight'].apply(lambda x: f'{x:.2%}'),
+                textposition='outside'
+            ))
+            fig_bar.update_layout(
+                xaxis_title="ETF Ticker",
+                yaxis_title="Weight",
+                height=450
+            )
+            st.plotly_chart(fig_bar, use_container_width=True, key=f"bar_{universe_key}")
+        
+        # Weight table
+        st.markdown("### Detailed Weights")
+        df_display = df.copy()
+        df_display['Weight'] = df_display['Weight'].apply(lambda x: f'{x:.2%}')
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+        
+        # Dendrogram
+        linkage = data.get('cluster_linkage', {}).get(universe_key)
+        tickers_in_universe = config.UNIVERSES[universe_key]
+        if linkage and len(tickers_in_universe) > 2:
+            st.markdown("### Hierarchical Clustering")
+            fig_dendro = create_dendrogram(linkage, tickers_in_universe)
+            if fig_dendro:
+                st.plotly_chart(fig_dendro, use_container_width=True, key=f"dendro_{universe_key}")
