@@ -48,9 +48,13 @@ def run_hrp_allocation():
         top_3 = sorted(weights.items(), key=lambda x: x[1], reverse=True)[:3]
         print(f"    Top 3 allocations: {', '.join([f'{t}: {w:.2%}' for t, w in top_3])}")
         
-        # Store cluster linkage for visualization
-        if allocator.linkage is not None:
-            cluster_info[universe_name] = allocator.linkage.tolist()
+        # Store cluster linkage and original tickers for visualization
+        linkage, original_tickers = allocator.get_linkage_and_labels()
+        if linkage is not None and original_tickers is not None:
+            cluster_info[universe_name] = {
+                "linkage": linkage.tolist(),
+                "original_tickers": original_tickers
+            }
     
     # Build output payload
     output_payload = {
@@ -60,7 +64,7 @@ def run_hrp_allocation():
             "linkage_method": config.LINKAGE_METHOD
         },
         "weights": all_weights,
-        "cluster_linkage": cluster_info
+        "cluster_info": cluster_info
     }
     
     # Push to Hugging Face
