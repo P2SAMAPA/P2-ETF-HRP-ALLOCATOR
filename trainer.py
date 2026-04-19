@@ -22,7 +22,11 @@ def get_top_n_weights(weights_dict: dict, n: int = 5) -> dict:
 def run_hrp_allocation():
     print(f"=== P2-ETF-HRP-ALLOCATOR Run: {config.TODAY} ===")
     df_master = data_manager.load_master_data()
-    allocator = HRPAllocator(linkage_method=config.LINKAGE_METHOD)
+    allocator = HRPAllocator(
+        linkage_method=config.LINKAGE_METHOD,
+        return_metric=config.RETURN_METRIC,
+        risk_free_rate=config.RISK_FREE_RATE
+    )
 
     # ---------------------------
     # 1. Daily Trading (504d, top 5)
@@ -42,7 +46,6 @@ def run_hrp_allocation():
         daily_full[universe_name] = weights
         daily_top5[universe_name] = get_top_n_weights(weights, config.TOP_N_DAILY)
 
-        # Store cluster info for dendrogram
         linkage, original_tickers = allocator.get_linkage_and_labels()
         if linkage is not None and original_tickers is not None:
             daily_cluster_info[universe_name] = {
@@ -87,6 +90,7 @@ def run_hrp_allocation():
         "config": {
             "lookback_window": config.LOOKBACK_WINDOW,
             "linkage_method": config.LINKAGE_METHOD,
+            "return_metric": config.RETURN_METRIC,
             "top_n_daily": config.TOP_N_DAILY
         },
         "daily_trading": {
