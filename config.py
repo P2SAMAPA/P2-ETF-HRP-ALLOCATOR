@@ -29,12 +29,14 @@ UNIVERSES = {
 }
 
 # --- HRP Parameters ---
-LOOKBACK_WINDOW = 252                 # 1-year lookback for covariance estimation
-LINKAGE_METHOD = "ward"               # Hierarchical clustering method
-MIN_OBSERVATIONS = 100                # Minimum observations required
+LOOKBACK_WINDOW = 504                 # 2-year lookback for daily trading
+SHRINKING_WINDOW_START_YEARS = list(range(2008, 2025))  # 2008..2024
+LINKAGE_METHOD = "ward"
+MIN_OBSERVATIONS = 100
+TOP_N_DAILY = 5                       # Restrict daily allocation to top 5 ETFs
 
 # --- Date Handling ---
 TODAY = datetime.now().strftime("%Y-%m-%d")
 
-# --- Optional: Hugging Face Token (set via environment variable) ---
+# --- Optional: Hugging Face Token ---
 HF_TOKEN = os.environ.get("HF_TOKEN", None)
