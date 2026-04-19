@@ -10,6 +10,7 @@ import plotly.figure_factory as ff
 from huggingface_hub import HfApi, hf_hub_download
 import json
 import numpy as np
+import scipy.cluster.hierarchy as sch
 import config
 
 st.set_page_config(
@@ -73,10 +74,25 @@ def create_dendrogram(linkage: list, labels: list):
         else:
             return None, msg + " Cannot fix."
 
+    # Convert to numpy array and ensure float type
+    Z = np.array(linkage, dtype=np.float64)
+    if Z.shape[1] != 4:
+        return None, f"Linkage matrix should have 4 columns, got {Z.shape[1]}."
+
+    # Ensure labels are unique strings (Plotly may fail with duplicates)
+    unique_labels = []
+    seen = set()
+    for lbl in labels:
+        if lbl in seen:
+            lbl = f"{lbl}_2"
+        seen.add(lbl)
+        unique_labels.append(lbl)
+
     try:
+        # Try Plotly's figure factory first
         fig = ff.create_dendrogram(
-            np.array(linkage),
-            labels=labels,
+            Z,
+            labels=unique_labels,
             orientation='bottom',
             colorscale='Viridis'
         )
@@ -88,7 +104,36 @@ def create_dendrogram(linkage: list, labels: list):
         )
         return fig, None
     except Exception as e:
-        return None, str(e)
+        st.warning(f"Plotly dendrogram failed: {e}. Falling back to manual dendrogram.")
+        # Fallback: use scipy's dendrogram to get coordinates and build a custom Plotly figure
+        try:
+            ddata = sch.dendrogram(Z, labels=unique_labels, no_plot=True, orientation='bottom')
+            # Create plotly figure manually
+            fig = go.Figure()
+            icoord = ddata['icoord']
+            dcoord = ddata['dcoord']
+            for i in range(len(icoord)):
+                fig.add_trace(go.Scatter(
+                    x=icoord[i], y=dcoord[i],
+                    mode='lines',
+                    line=dict(color='#1f77b4'),
+                    showlegend=False
+                ))
+            # Add leaf labels
+            fig.update_layout(
+                title="Hierarchical Clustering Dendrogram (Fallback)",
+                xaxis=dict(
+                    tickmode='array',
+                    tickvals=list(range(len(unique_labels))),
+                    ticktext=unique_labels,
+                    tickangle=-45
+                ),
+                yaxis_title="Distance",
+                height=500
+            )
+            return fig, None
+        except Exception as e2:
+            return None, f"Fallback also failed: {e2}"
 
 # --- Sidebar ---
 st.sidebar.markdown("## ⚙️ Configuration")
