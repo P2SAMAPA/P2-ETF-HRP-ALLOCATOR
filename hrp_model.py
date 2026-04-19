@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import scipy.cluster.hierarchy as sch
 import scipy.spatial.distance as ssd
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 class HRPAllocator:
     """
@@ -17,6 +17,7 @@ class HRPAllocator:
     def __init__(self, linkage_method: str = 'ward'):
         self.linkage_method = linkage_method
         self.linkage = None
+        self.original_tickers = None
 
     def allocate(self, returns: pd.DataFrame) -> Dict[str, float]:
         """
@@ -25,6 +26,9 @@ class HRPAllocator:
         """
         if returns.shape[1] < 2:
             return {returns.columns[0]: 1.0}
+
+        # Store original ticker order for dendrogram labels
+        self.original_tickers = returns.columns.tolist()
 
         # Covariance and correlation
         cov = returns.cov()
@@ -38,7 +42,7 @@ class HRPAllocator:
 
         # Quasi-diagonalization: order tickers according to dendrogram leaves
         ordered_indices = sch.leaves_list(self.linkage)
-        ordered_tickers = [returns.columns[i] for i in ordered_indices]
+        ordered_tickers = [self.original_tickers[i] for i in ordered_indices]
 
         # Recursive bisection on the ordered covariance matrix
         cov_ordered = cov.loc[ordered_tickers, ordered_tickers]
@@ -84,7 +88,10 @@ class HRPAllocator:
     def _inverse_variance_weights(self, cov: pd.DataFrame) -> np.ndarray:
         """Compute inverse-variance weights for a covariance matrix."""
         diag = np.diag(cov)
-        # Avoid division by zero
         diag = np.where(diag < 1e-10, 1e-10, diag)
         ivp = 1.0 / diag
         return ivp / ivp.sum()
+
+    def get_linkage_and_labels(self) -> Tuple[np.ndarray, List[str]]:
+        """Return linkage matrix and the original ticker order used for clustering."""
+        return self.linkage, self.original_tickers
