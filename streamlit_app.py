@@ -80,7 +80,6 @@ def create_dendrogram(linkage: list, labels: list):
     return fig
 
 def display_allocation_tab(weights_dict: dict, cluster_info: dict, universe_key: str):
-    """Display pie, bar, table and dendrogram for a given weights dict."""
     if not weights_dict:
         st.info("No weights available.")
         return
@@ -132,6 +131,7 @@ st.sidebar.markdown("### 📊 HRP Parameters")
 st.sidebar.markdown(f"- Daily Lookback: **{config.LOOKBACK_WINDOW} days**")
 st.sidebar.markdown(f"- Top N Daily: **{config.TOP_N_DAILY}**")
 st.sidebar.markdown(f"- Linkage Method: **{config.LINKAGE_METHOD}**")
+st.sidebar.markdown(f"- Return Metric: **{config.RETURN_METRIC}**")
 st.sidebar.divider()
 
 data = load_latest_results()
@@ -143,8 +143,9 @@ else:
 st.sidebar.divider()
 st.sidebar.markdown("### 📖 About")
 st.sidebar.markdown("""
-**HRP Allocator** generates robust portfolio weights using Hierarchical Risk Parity.
+**HRP Allocator** generates robust portfolio weights using Hierarchical Risk Parity with return signals.
 - Daily trading shows top‑5 focused allocation.
+- Weights are based on **annualized mean returns** (higher returns favored).
 - Shrinking windows reveal allocation stability across different historical periods.
 """)
 
@@ -156,21 +157,16 @@ if data is None:
     st.warning("No data available. Please run the daily pipeline first.")
     st.stop()
 
-# Detect format (new vs legacy)
 is_new_format = 'daily_trading' in data
 if not is_new_format:
-    st.warning("Legacy data format detected. Please run the latest trainer to see new tabs.")
+    st.warning("Legacy data format detected. Please run the latest trainer.")
     st.stop()
 
 daily_data = data['daily_trading']
 shrinking_data = data.get('shrinking_windows', {})
 
-# --- Top‑Level Tabs ---
 tab_daily, tab_shrink = st.tabs(["📋 Daily Trading (Top 5)", "📆 Shrinking Windows"])
 
-# ------------------------------
-# DAILY TRADING TAB
-# ------------------------------
 with tab_daily:
     st.markdown("### Daily Allocation – Restricted to Top 5 ETFs per Universe")
     daily_subtabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
@@ -181,24 +177,19 @@ with tab_daily:
             cluster_info = daily_data.get('cluster_info', {}).get(ukey, {})
             display_allocation_tab(weights, cluster_info, f"daily_{ukey}")
 
-# ------------------------------
-# SHRINKING WINDOWS TAB
-# ------------------------------
 with tab_shrink:
     if not shrinking_data:
-        st.warning("No shrinking windows data available yet. The next run will generate it.")
+        st.warning("No shrinking windows data available yet.")
         st.stop()
 
     st.markdown("### Allocation Evolution Across Historical Windows")
     shrink_subtabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
     for subtab, ukey in zip(shrink_subtabs, universe_keys):
         with subtab:
-            # Build a list of windows with top 5 weights for this universe
             windows = []
             for label, winfo in sorted(shrinking_data.items(), key=lambda x: x[1]['start_year'], reverse=True):
                 w = winfo['weights'].get(ukey, {})
                 if w:
-                    # Get top 5 for display
                     top_items = sorted(w.items(), key=lambda x: x[1], reverse=True)[:5]
                     windows.append({
                         'Window': label,
@@ -208,7 +199,6 @@ with tab_shrink:
                 df_windows = pd.DataFrame(windows)
                 st.dataframe(df_windows, use_container_width=True, hide_index=True)
 
-                # Dropdown to view full allocation for a selected window
                 selected_window = st.selectbox("Select window to view full allocation:", 
                                                [w['Window'] for w in windows], key=f"select_{ukey}")
                 if selected_window:
