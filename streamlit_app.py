@@ -1,6 +1,6 @@
 """
 Streamlit Dashboard for HRP Allocator.
-Displays HRP portfolio weights and cluster dendrograms.
+Displays daily top‑5 allocations and shrinking windows.
 """
 
 import streamlit as st
@@ -37,8 +37,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=3600)
-def load_latest_weights():
-    """Fetch the most recent result file from HF dataset."""
+def load_latest_results():
     try:
         api = HfApi(token=config.HF_TOKEN)
         files = api.list_repo_files(repo_id=config.HF_OUTPUT_REPO, repo_type="dataset")
@@ -59,54 +58,83 @@ def load_latest_weights():
         return None
 
 def create_dendrogram(linkage: list, labels: list):
-    """
-    Create a dendrogram using SciPy + Matplotlib.
-    Returns a matplotlib Figure object.
-    """
     if linkage is None or len(linkage) == 0:
         return None
     if labels is None or len(labels) == 0:
         return None
-
     expected_rows = len(labels) - 1
     if len(linkage) != expected_rows:
         if len(linkage) > expected_rows:
             linkage = linkage[:expected_rows]
         else:
             return None
-
     Z = np.array(linkage, dtype=np.float64)
     if Z.shape[1] != 4:
         return None
-
-    # Create matplotlib figure
     fig, ax = plt.subplots(figsize=(12, 5))
-    sch.dendrogram(
-        Z,
-        labels=labels,
-        orientation='top',
-        leaf_rotation=45,
-        leaf_font_size=10,
-        ax=ax
-    )
+    sch.dendrogram(Z, labels=labels, orientation='top', leaf_rotation=45, leaf_font_size=10, ax=ax)
     ax.set_title("Hierarchical Clustering Dendrogram")
     ax.set_xlabel("ETF Ticker")
     ax.set_ylabel("Distance")
     plt.tight_layout()
     return fig
 
+def display_allocation_tab(weights_dict: dict, cluster_info: dict, universe_key: str):
+    """Display pie, bar, table and dendrogram for a given weights dict."""
+    if not weights_dict:
+        st.info("No weights available.")
+        return
+    df = pd.DataFrame(weights_dict.items(), columns=['Ticker', 'Weight']).sort_values('Weight', ascending=False)
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.markdown("### Portfolio Allocation")
+        fig_pie = go.Figure(go.Pie(
+            labels=df['Ticker'], values=df['Weight'], hole=0.4,
+            textinfo='label+percent',
+            marker=dict(colors=['#1f77b4' if i == 0 else '#a0aec0' for i in range(len(df))])
+        ))
+        fig_pie.update_layout(height=450)
+        st.plotly_chart(fig_pie, use_container_width=True, key=f"pie_{universe_key}")
+    with col2:
+        st.markdown("### Weight Distribution")
+        fig_bar = go.Figure(go.Bar(
+            x=df['Ticker'], y=df['Weight'],
+            marker_color=['#1f77b4' if i == 0 else '#a0aec0' for i in range(len(df))],
+            text=df['Weight'].apply(lambda x: f'{x:.2%}'), textposition='outside'
+        ))
+        fig_bar.update_layout(xaxis_title="ETF Ticker", yaxis_title="Weight", height=450)
+        st.plotly_chart(fig_bar, use_container_width=True, key=f"bar_{universe_key}")
+    st.markdown("### Detailed Weights")
+    df_display = df.copy()
+    df_display['Weight'] = df_display['Weight'].apply(lambda x: f'{x:.2%}')
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
+    st.markdown("### Hierarchical Clustering")
+    if cluster_info:
+        linkage = cluster_info.get('linkage')
+        original_tickers = cluster_info.get('original_tickers')
+        if linkage and original_tickers and len(original_tickers) > 2:
+            fig_dendro = create_dendrogram(linkage, original_tickers)
+            if fig_dendro:
+                st.pyplot(fig_dendro, use_container_width=True)
+            else:
+                st.warning("Dendrogram could not be created.")
+        else:
+            st.info("Insufficient cluster information.")
+    else:
+        st.info("No cluster information available.")
+
 # --- Sidebar ---
 st.sidebar.markdown("## ⚙️ Configuration")
 st.sidebar.markdown(f"**Data Source:** `{config.HF_DATA_REPO}`")
 st.sidebar.markdown(f"**Results Repo:** `{config.HF_OUTPUT_REPO}`")
 st.sidebar.divider()
-
 st.sidebar.markdown("### 📊 HRP Parameters")
-st.sidebar.markdown(f"- Lookback Window: **{config.LOOKBACK_WINDOW} days**")
+st.sidebar.markdown(f"- Daily Lookback: **{config.LOOKBACK_WINDOW} days**")
+st.sidebar.markdown(f"- Top N Daily: **{config.TOP_N_DAILY}**")
 st.sidebar.markdown(f"- Linkage Method: **{config.LINKAGE_METHOD}**")
 st.sidebar.divider()
 
-data = load_latest_weights()
+data = load_latest_results()
 if data:
     st.sidebar.markdown(f"**Run Date:** {data.get('run_date', 'Unknown')}")
 else:
@@ -116,90 +144,79 @@ st.sidebar.divider()
 st.sidebar.markdown("### 📖 About")
 st.sidebar.markdown("""
 **HRP Allocator** generates robust portfolio weights using Hierarchical Risk Parity.
-
-- No expected return estimates required
-- Uses covariance clustering to group similar assets
-- Distributes risk equally across the hierarchy
+- Daily trading shows top‑5 focused allocation.
+- Shrinking windows reveal allocation stability across different historical periods.
 """)
 
 # --- Main Content ---
 st.markdown('<div class="main-header">📊 P2Quant HRP Allocator</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Hierarchical Risk Parity – Daily Rebalanced Weights</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Hierarchical Risk Parity – Daily Rebalanced & Historical Windows</div>', unsafe_allow_html=True)
 
 if data is None:
     st.warning("No data available. Please run the daily pipeline first.")
     st.stop()
 
-# --- Debug expander (can be removed later) ---
-with st.expander("🔍 Debug: Data Structure", expanded=False):
-    st.write("Data keys:", list(data.keys()))
-    st.write("cluster_info keys:", list(data.get('cluster_info', {}).keys()))
-    for key in data.get('cluster_info', {}):
-        st.write(f"{key}: linkage rows = {len(data['cluster_info'][key].get('linkage', []))}, tickers count = {len(data['cluster_info'][key].get('original_tickers', []))}")
+# Detect format (new vs legacy)
+is_new_format = 'daily_trading' in data
+if not is_new_format:
+    st.warning("Legacy data format detected. Please run the latest trainer to see new tabs.")
+    st.stop()
 
-# --- Tabs ---
-tab1, tab2, tab3 = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
-universe_keys = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
+daily_data = data['daily_trading']
+shrinking_data = data.get('shrinking_windows', {})
 
-for tab, universe_key in zip([tab1, tab2, tab3], universe_keys):
-    with tab:
-        weights = data['weights'].get(universe_key, {})
-        
-        if not weights:
-            st.info(f"No weights available for {universe_key} universe.")
-            continue
-        
-        df = pd.DataFrame(weights.items(), columns=['Ticker', 'Weight'])
-        df = df.sort_values('Weight', ascending=False)
-        
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.markdown("### Portfolio Allocation")
-            fig_pie = go.Figure(go.Pie(
-                labels=df['Ticker'],
-                values=df['Weight'],
-                hole=0.4,
-                textinfo='label+percent',
-                marker=dict(colors=['#1f77b4' if i == 0 else '#a0aec0' for i in range(len(df))])
-            ))
-            fig_pie.update_layout(height=450)
-            st.plotly_chart(fig_pie, use_container_width=True, key=f"pie_{universe_key}")
-        
-        with col2:
-            st.markdown("### Weight Distribution")
-            fig_bar = go.Figure(go.Bar(
-                x=df['Ticker'],
-                y=df['Weight'],
-                marker_color=['#1f77b4' if i == 0 else '#a0aec0' for i in range(len(df))],
-                text=df['Weight'].apply(lambda x: f'{x:.2%}'),
-                textposition='outside'
-            ))
-            fig_bar.update_layout(
-                xaxis_title="ETF Ticker",
-                yaxis_title="Weight",
-                height=450
-            )
-            st.plotly_chart(fig_bar, use_container_width=True, key=f"bar_{universe_key}")
-        
-        st.markdown("### Detailed Weights")
-        df_display = df.copy()
-        df_display['Weight'] = df_display['Weight'].apply(lambda x: f'{x:.2%}')
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
-        
-        # Dendrogram using Matplotlib
-        st.markdown("### Hierarchical Clustering")
-        cluster_entry = data.get('cluster_info', {}).get(universe_key)
-        if cluster_entry:
-            linkage = cluster_entry.get('linkage')
-            original_tickers = cluster_entry.get('original_tickers')
-            if linkage and original_tickers and len(original_tickers) > 2:
-                fig_dendro = create_dendrogram(linkage, original_tickers)
-                if fig_dendro:
-                    st.pyplot(fig_dendro, use_container_width=True)
-                else:
-                    st.warning("Dendrogram could not be created due to dimension mismatch.")
+# --- Top‑Level Tabs ---
+tab_daily, tab_shrink = st.tabs(["📋 Daily Trading (Top 5)", "📆 Shrinking Windows"])
+
+# ------------------------------
+# DAILY TRADING TAB
+# ------------------------------
+with tab_daily:
+    st.markdown("### Daily Allocation – Restricted to Top 5 ETFs per Universe")
+    daily_subtabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
+    universe_keys = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
+    for subtab, ukey in zip(daily_subtabs, universe_keys):
+        with subtab:
+            weights = daily_data['top5_weights'].get(ukey, {})
+            cluster_info = daily_data.get('cluster_info', {}).get(ukey, {})
+            display_allocation_tab(weights, cluster_info, f"daily_{ukey}")
+
+# ------------------------------
+# SHRINKING WINDOWS TAB
+# ------------------------------
+with tab_shrink:
+    if not shrinking_data:
+        st.warning("No shrinking windows data available yet. The next run will generate it.")
+        st.stop()
+
+    st.markdown("### Allocation Evolution Across Historical Windows")
+    shrink_subtabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
+    for subtab, ukey in zip(shrink_subtabs, universe_keys):
+        with subtab:
+            # Build a list of windows with top 5 weights for this universe
+            windows = []
+            for label, winfo in sorted(shrinking_data.items(), key=lambda x: x[1]['start_year'], reverse=True):
+                w = winfo['weights'].get(ukey, {})
+                if w:
+                    # Get top 5 for display
+                    top_items = sorted(w.items(), key=lambda x: x[1], reverse=True)[:5]
+                    windows.append({
+                        'Window': label,
+                        'Top Allocation': ', '.join([f"{t} ({v:.1%})" for t, v in top_items])
+                    })
+            if windows:
+                df_windows = pd.DataFrame(windows)
+                st.dataframe(df_windows, use_container_width=True, hide_index=True)
+
+                # Dropdown to view full allocation for a selected window
+                selected_window = st.selectbox("Select window to view full allocation:", 
+                                               [w['Window'] for w in windows], key=f"select_{ukey}")
+                if selected_window:
+                    full_weights = shrinking_data[selected_window]['weights'].get(ukey, {})
+                    st.markdown(f"#### Full Allocation for {selected_window}")
+                    df_full = pd.DataFrame(full_weights.items(), columns=['Ticker', 'Weight'])
+                    df_full = df_full.sort_values('Weight', ascending=False)
+                    df_full['Weight'] = df_full['Weight'].apply(lambda x: f'{x:.2%}')
+                    st.dataframe(df_full, use_container_width=True, hide_index=True)
             else:
-                st.info("Insufficient cluster information to display dendrogram.")
-        else:
-            st.info("No cluster information available for this universe.")
+                st.info(f"No shrinking window data for {ukey}.")
