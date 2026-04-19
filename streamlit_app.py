@@ -57,21 +57,21 @@ def load_latest_weights():
         st.error(f"Failed to load data: {e}")
         return None
 
-def create_dendrogram(linkage: list, labels: list) -> go.Figure:
-    """Create a dendrogram from linkage matrix."""
+def create_dendrogram(linkage: list, labels: list):
+    """Create a dendrogram from linkage matrix. Returns (fig, error_message)."""
     if linkage is None or len(linkage) == 0:
-        return None
+        return None, "Linkage matrix is empty."
     if labels is None or len(labels) == 0:
-        return None
+        return None, "Labels list is empty."
 
-    # The linkage matrix must have exactly len(labels) - 1 rows
     expected_rows = len(labels) - 1
     if len(linkage) != expected_rows:
-        st.warning(f"Linkage matrix has {len(linkage)} rows, expected {expected_rows}. Adjusting...")
+        msg = f"Linkage matrix has {len(linkage)} rows, expected {expected_rows}."
         if len(linkage) > expected_rows:
             linkage = linkage[:expected_rows]
+            msg += " Trimmed to match."
         else:
-            return None
+            return None, msg + " Cannot fix."
 
     try:
         fig = ff.create_dendrogram(
@@ -86,10 +86,9 @@ def create_dendrogram(linkage: list, labels: list) -> go.Figure:
             yaxis_title="Distance",
             height=400
         )
-        return fig
+        return fig, None
     except Exception as e:
-        st.error(f"Failed to create dendrogram: {e}")
-        return None
+        return None, str(e)
 
 # --- Sidebar ---
 st.sidebar.markdown("## ⚙️ Configuration")
@@ -125,6 +124,13 @@ st.markdown('<div class="sub-header">Hierarchical Risk Parity – Daily Rebalanc
 if data is None:
     st.warning("No data available. Please run the daily pipeline first.")
     st.stop()
+
+# --- Debug expander (can be removed later) ---
+with st.expander("🔍 Debug: Data Structure", expanded=False):
+    st.write("Data keys:", list(data.keys()))
+    st.write("cluster_info keys:", list(data.get('cluster_info', {}).keys()))
+    for key in data.get('cluster_info', {}):
+        st.write(f"{key}: linkage rows = {len(data['cluster_info'][key].get('linkage', []))}, tickers count = {len(data['cluster_info'][key].get('original_tickers', []))}")
 
 # --- Tabs ---
 tab1, tab2, tab3 = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
@@ -176,13 +182,19 @@ for tab, universe_key in zip([tab1, tab2, tab3], universe_keys):
         df_display['Weight'] = df_display['Weight'].apply(lambda x: f'{x:.2%}')
         st.dataframe(df_display, use_container_width=True, hide_index=True)
         
-        # Dendrogram
+        # Dendrogram with error reporting
+        st.markdown("### Hierarchical Clustering")
         cluster_entry = data.get('cluster_info', {}).get(universe_key)
         if cluster_entry:
             linkage = cluster_entry.get('linkage')
             original_tickers = cluster_entry.get('original_tickers')
             if linkage and original_tickers and len(original_tickers) > 2:
-                st.markdown("### Hierarchical Clustering")
-                fig_dendro = create_dendrogram(linkage, original_tickers)
+                fig_dendro, error_msg = create_dendrogram(linkage, original_tickers)
                 if fig_dendro:
                     st.plotly_chart(fig_dendro, use_container_width=True, key=f"dendro_{universe_key}")
+                else:
+                    st.warning(f"Dendrogram could not be created: {error_msg}")
+            else:
+                st.info(f"Missing linkage or tickers. Linkage: {linkage is not None}, Tickers: {original_tickers is not None}, Count: {len(original_tickers) if original_tickers else 0}")
+        else:
+            st.info("No cluster information available for this universe.")
