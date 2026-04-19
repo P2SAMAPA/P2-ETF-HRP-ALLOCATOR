@@ -37,8 +37,8 @@ TOP_N_DAILY = 5                       # Restrict daily allocation to top 5 ETFs
 
 # Return metric for allocation weighting:
 # 'inverse_variance' (original HRP), 'sharpe', 'mean_return', 'return_over_var'
-RETURN_METRIC = "sharpe"
-RISK_FREE_RATE = 0.0                  # Annualized (daily risk-free rate ~0)
+RETURN_METRIC = "mean_return"         # Use raw annualized returns
+RISK_FREE_RATE = 0.0
 
 # --- Date Handling ---
 TODAY = datetime.now().strftime("%Y-%m-%d")
