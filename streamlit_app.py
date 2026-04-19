@@ -6,7 +6,7 @@ Displays HRP portfolio weights and cluster dendrograms.
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.figure_factory as ff
+import matplotlib.pyplot as plt
 from huggingface_hub import HfApi, hf_hub_download
 import json
 import numpy as np
@@ -59,81 +59,41 @@ def load_latest_weights():
         return None
 
 def create_dendrogram(linkage: list, labels: list):
-    """Create a dendrogram from linkage matrix. Returns (fig, error_message)."""
+    """
+    Create a dendrogram using SciPy + Matplotlib.
+    Returns a matplotlib Figure object.
+    """
     if linkage is None or len(linkage) == 0:
-        return None, "Linkage matrix is empty."
+        return None
     if labels is None or len(labels) == 0:
-        return None, "Labels list is empty."
+        return None
 
     expected_rows = len(labels) - 1
     if len(linkage) != expected_rows:
-        msg = f"Linkage matrix has {len(linkage)} rows, expected {expected_rows}."
         if len(linkage) > expected_rows:
             linkage = linkage[:expected_rows]
-            msg += " Trimmed to match."
         else:
-            return None, msg + " Cannot fix."
+            return None
 
-    # Convert to numpy array and ensure float type
     Z = np.array(linkage, dtype=np.float64)
     if Z.shape[1] != 4:
-        return None, f"Linkage matrix should have 4 columns, got {Z.shape[1]}."
+        return None
 
-    # Ensure labels are unique strings (Plotly may fail with duplicates)
-    unique_labels = []
-    seen = set()
-    for lbl in labels:
-        if lbl in seen:
-            lbl = f"{lbl}_2"
-        seen.add(lbl)
-        unique_labels.append(lbl)
-
-    try:
-        # Try Plotly's figure factory first
-        fig = ff.create_dendrogram(
-            Z,
-            labels=unique_labels,
-            orientation='bottom',
-            colorscale='Viridis'
-        )
-        fig.update_layout(
-            title="Hierarchical Clustering Dendrogram",
-            xaxis_title="ETF Ticker",
-            yaxis_title="Distance",
-            height=400
-        )
-        return fig, None
-    except Exception as e:
-        st.warning(f"Plotly dendrogram failed: {e}. Falling back to manual dendrogram.")
-        # Fallback: use scipy's dendrogram to get coordinates and build a custom Plotly figure
-        try:
-            ddata = sch.dendrogram(Z, labels=unique_labels, no_plot=True, orientation='bottom')
-            # Create plotly figure manually
-            fig = go.Figure()
-            icoord = ddata['icoord']
-            dcoord = ddata['dcoord']
-            for i in range(len(icoord)):
-                fig.add_trace(go.Scatter(
-                    x=icoord[i], y=dcoord[i],
-                    mode='lines',
-                    line=dict(color='#1f77b4'),
-                    showlegend=False
-                ))
-            # Add leaf labels
-            fig.update_layout(
-                title="Hierarchical Clustering Dendrogram (Fallback)",
-                xaxis=dict(
-                    tickmode='array',
-                    tickvals=list(range(len(unique_labels))),
-                    ticktext=unique_labels,
-                    tickangle=-45
-                ),
-                yaxis_title="Distance",
-                height=500
-            )
-            return fig, None
-        except Exception as e2:
-            return None, f"Fallback also failed: {e2}"
+    # Create matplotlib figure
+    fig, ax = plt.subplots(figsize=(12, 5))
+    sch.dendrogram(
+        Z,
+        labels=labels,
+        orientation='top',
+        leaf_rotation=45,
+        leaf_font_size=10,
+        ax=ax
+    )
+    ax.set_title("Hierarchical Clustering Dendrogram")
+    ax.set_xlabel("ETF Ticker")
+    ax.set_ylabel("Distance")
+    plt.tight_layout()
+    return fig
 
 # --- Sidebar ---
 st.sidebar.markdown("## ⚙️ Configuration")
@@ -227,19 +187,19 @@ for tab, universe_key in zip([tab1, tab2, tab3], universe_keys):
         df_display['Weight'] = df_display['Weight'].apply(lambda x: f'{x:.2%}')
         st.dataframe(df_display, use_container_width=True, hide_index=True)
         
-        # Dendrogram with error reporting
+        # Dendrogram using Matplotlib
         st.markdown("### Hierarchical Clustering")
         cluster_entry = data.get('cluster_info', {}).get(universe_key)
         if cluster_entry:
             linkage = cluster_entry.get('linkage')
             original_tickers = cluster_entry.get('original_tickers')
             if linkage and original_tickers and len(original_tickers) > 2:
-                fig_dendro, error_msg = create_dendrogram(linkage, original_tickers)
+                fig_dendro = create_dendrogram(linkage, original_tickers)
                 if fig_dendro:
-                    st.plotly_chart(fig_dendro, use_container_width=True, key=f"dendro_{universe_key}")
+                    st.pyplot(fig_dendro, use_container_width=True)
                 else:
-                    st.warning(f"Dendrogram could not be created: {error_msg}")
+                    st.warning("Dendrogram could not be created due to dimension mismatch.")
             else:
-                st.info(f"Missing linkage or tickers. Linkage: {linkage is not None}, Tickers: {original_tickers is not None}, Count: {len(original_tickers) if original_tickers else 0}")
+                st.info("Insufficient cluster information to display dendrogram.")
         else:
             st.info("No cluster information available for this universe.")
