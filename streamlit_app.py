@@ -38,7 +38,6 @@ st.markdown("""
 
 @st.cache_data(ttl=3600)
 def load_latest_weights():
-    """Fetch the most recent result file from HF dataset."""
     try:
         api = HfApi(token=config.HF_TOKEN)
         files = api.list_repo_files(repo_id=config.HF_OUTPUT_REPO, repo_type="dataset")
@@ -60,22 +59,35 @@ def load_latest_weights():
 
 def create_dendrogram(linkage: list, tickers: list) -> go.Figure:
     """Create a dendrogram from linkage matrix."""
-    if linkage is None:
+    if linkage is None or len(linkage) == 0:
         return None
     
-    fig = ff.create_dendrogram(
-        np.array(linkage),
-        labels=tickers,
-        orientation='bottom',
-        colorscale='Viridis'
-    )
-    fig.update_layout(
-        title="Hierarchical Clustering Dendrogram",
-        xaxis_title="ETF Ticker",
-        yaxis_title="Distance",
-        height=400
-    )
-    return fig
+    expected_rows = len(tickers) - 1
+    if len(linkage) != expected_rows:
+        st.warning(f"Linkage matrix has {len(linkage)} rows, expected {expected_rows}. Adjusting...")
+        if len(linkage) > expected_rows:
+            linkage = linkage[:expected_rows]
+        else:
+            # Can't fix, return None
+            return None
+    
+    try:
+        fig = ff.create_dendrogram(
+            np.array(linkage),
+            labels=tickers,
+            orientation='bottom',
+            colorscale='Viridis'
+        )
+        fig.update_layout(
+            title="Hierarchical Clustering Dendrogram",
+            xaxis_title="ETF Ticker",
+            yaxis_title="Distance",
+            height=400
+        )
+        return fig
+    except Exception as e:
+        st.error(f"Failed to create dendrogram: {e}")
+        return None
 
 # --- Sidebar ---
 st.sidebar.markdown("## ⚙️ Configuration")
@@ -124,7 +136,6 @@ for tab, universe_key in zip([tab1, tab2, tab3], universe_keys):
             st.info(f"No weights available for {universe_key} universe.")
             continue
         
-        # Convert to DataFrame
         df = pd.DataFrame(weights.items(), columns=['Ticker', 'Weight'])
         df = df.sort_values('Weight', ascending=False)
         
@@ -158,7 +169,6 @@ for tab, universe_key in zip([tab1, tab2, tab3], universe_keys):
             )
             st.plotly_chart(fig_bar, use_container_width=True, key=f"bar_{universe_key}")
         
-        # Weight table
         st.markdown("### Detailed Weights")
         df_display = df.copy()
         df_display['Weight'] = df_display['Weight'].apply(lambda x: f'{x:.2%}')
