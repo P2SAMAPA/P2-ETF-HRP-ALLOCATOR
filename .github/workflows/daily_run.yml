@@ -2,7 +2,7 @@ name: Daily HRP Allocation
 
 on:
   schedule:
-    - cron: '0 12 * * 1-5'   # 12 PM UTC, Monday-Friday
+    - cron: '0 02 * * 1-5'   # 02 AM UTC, Monday-Friday
   workflow_dispatch:          # Manual trigger
 
 jobs:
