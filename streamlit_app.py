@@ -165,10 +165,10 @@ if not is_new_format:
 daily_data = data['daily_trading']
 shrinking_data = data.get('shrinking_windows', {})
 
-tab_daily, tab_shrink = st.tabs(["📋 Daily Trading (Top 5)", "📆 Shrinking Windows"])
+tab_daily, tab_shrink = st.tabs(["📋 Daily Trading (Top 3)", "📆 Shrinking Windows"])
 
 with tab_daily:
-    st.markdown("### Daily Allocation – Restricted to Top 5 ETFs per Universe")
+    st.markdown("### Daily Allocation – Restricted to Top 3 ETFs per Universe")
     daily_subtabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
     universe_keys = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
     for subtab, ukey in zip(daily_subtabs, universe_keys):
