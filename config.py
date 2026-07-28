@@ -15,7 +15,7 @@ HF_OUTPUT_REPO = "P2SAMAPA/p2-etf-hrp-allocator-results"
 FI_COMMODITIES_TICKERS = ["TLT", "VCIT", "LQD", "HYG", "VNQ", "GLD", "SLV"]
 
 EQUITY_SECTORS_TICKERS = [
-    "SPY", "QQQ", "XLK", "XLF", "XLE", "XLV",
+    "SPY", "QQQ", "XLK", "XLF", "XLE", "XLV", "URA",
     "XLI", "XLY", "XLP", "XLU", "GDX", "XME", "SMH", "SOXX", "XLB", "IWD", "IWO",
     "IWF", "XSD", "XBI", "IWM"
 ]
@@ -33,7 +33,7 @@ LOOKBACK_WINDOW = 504                 # 2-year lookback for daily trading
 SHRINKING_WINDOW_START_YEARS = list(range(2008, 2025))
 LINKAGE_METHOD = "ward"
 MIN_OBSERVATIONS = 100
-TOP_N_DAILY = 5                       # Restrict daily allocation to top 5 ETFs
+TOP_N_DAILY = 3                       # Restrict daily allocation to top 5 ETFs
 
 # Return metric for allocation weighting:
 # 'inverse_variance' (original HRP), 'sharpe', 'mean_return', 'return_over_var'
