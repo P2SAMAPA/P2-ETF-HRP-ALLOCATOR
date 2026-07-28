@@ -144,7 +144,7 @@ st.sidebar.divider()
 st.sidebar.markdown("### 📖 About")
 st.sidebar.markdown("""
 **HRP Allocator** generates robust portfolio weights using Hierarchical Risk Parity with return signals.
-- Daily trading shows top‑5 focused allocation.
+- Daily trading shows top‑3 focused allocation.
 - Weights are based on **annualized mean returns** (higher returns favored).
 - Shrinking windows reveal allocation stability across different historical periods.
 """)
