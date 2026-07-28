@@ -33,7 +33,7 @@ LOOKBACK_WINDOW = 504                 # 2-year lookback for daily trading
 SHRINKING_WINDOW_START_YEARS = list(range(2008, 2025))
 LINKAGE_METHOD = "ward"
 MIN_OBSERVATIONS = 100
-TOP_N_DAILY = 3                       # Restrict daily allocation to top 5 ETFs
+TOP_N_DAILY = 3                       # Restrict daily allocation to top 3 ETFs
 
 # Return metric for allocation weighting:
 # 'inverse_variance' (original HRP), 'sharpe', 'mean_return', 'return_over_var'
