@@ -1,6 +1,6 @@
 """
 Streamlit Dashboard for HRP Allocator.
-Displays daily top‑5 allocations and shrinking windows.
+Displays daily top‑3 allocations and shrinking windows.
 """
 
 import streamlit as st
